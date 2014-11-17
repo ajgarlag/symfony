@@ -79,6 +79,7 @@ class MainConfiguration implements ConfigurationInterface
         $this->addFirewallsSection($rootNode, $this->factories);
         $this->addAccessControlSection($rootNode);
         $this->addRoleHierarchySection($rootNode);
+        $this->addSessionRegistrySection($rootNode);
 
         return $tb;
     }
@@ -288,6 +289,14 @@ class MainConfiguration implements ConfigurationInterface
                     ->scalarNode('role')->defaultValue('ROLE_ALLOWED_TO_SWITCH')->end()
                 ->end()
             ->end()
+            ->arrayNode('session_concurrency')
+                ->canBeUnset()
+                ->children()
+                    ->integerNode('max_sessions')->min(0)->end()
+                    ->booleanNode('error_if_maximum_exceeded')->defaultTrue()->end()
+                    ->booleanNode('register_new_sessions')->defaultNull()->end()
+                ->end()
+            ->end()
         ;
 
         $abstractFactoryKeys = array();
@@ -425,6 +434,21 @@ class MainConfiguration implements ConfigurationInterface
                             ->end()
                             ->scalarNode('id')->end()
                         ->end()
+                    ->end()
+                ->end()
+            ->end()
+        ;
+    }
+
+    private function addSessionRegistrySection(ArrayNodeDefinition $rootNode)
+    {
+        $rootNode
+            ->children()
+                ->arrayNode('session_registry')
+                    ->children()
+                        ->scalarNode('session_registry_storage')->end()
+                        ->scalarNode('connection')->end()
+                        ->scalarNode('table')->defaultValue('sessions_information')->end()
                     ->end()
                 ->end()
             ->end()

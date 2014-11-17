@@ -71,6 +71,10 @@ class SecurityExtension extends Extension
             $container->removeDefinition('security.access.expression_voter');
         }
 
+        if (isset($config['session_registry'])) {
+            $this->loadSessionRegistry($config['session_registry'], $container, $loader);
+        }
+
         // set some global scalars
         $container->setParameter('security.access.denied_url', $config['access_denied_url']);
         $container->setParameter('security.authentication.manager.erase_credentials', $config['erase_credentials']);
@@ -394,6 +398,10 @@ class SecurityExtension extends Extension
         $hasListeners = false;
         $defaultEntryPoint = null;
 
+        if (isset($firewall['session_concurrency'])) {
+            $this->createConcurrentSessionAuthenticationStrategy($container, $id, $firewall);
+        }
+
         foreach ($this->listenerPositions as $position) {
             foreach ($this->factories[$position] as $factory) {
                 $key = str_replace('-', '_', $factory->getKey());
@@ -696,5 +704,79 @@ class SecurityExtension extends Extension
         }
 
         return $this->expressionLanguage;
+    }
+
+    private function loadSessionRegistry($config, ContainerBuilder $container, $loader)
+    {
+        $loader->load('security_session_concurrency.xml');
+
+        if (isset($config['session_registry_storage'])) {
+            $container->setAlias('security.session_registry_storage', $config['session_registry_storage']);
+
+            return;
+        }
+
+        $this->configureDbalSessionRegistryStorage($config, $container, $loader);
+    }
+
+    private function configureDbalSessionRegistryStorage($config, ContainerBuilder $container, $loader)
+    {
+        $loader->load('security_session_registry_dbal.xml');
+
+        if (isset($config['connection'])) {
+            $container->setAlias('security.session_registry.dbal.connection', sprintf('doctrine.dbal.%s_connection', $config['connection']));
+        }
+
+        $container->setParameter('security.session_registry.dbal.session_information_table_name', $config['table']);
+    }
+
+    private function createConcurrentSessionAuthenticationStrategy($container, $id, $config)
+    {
+        $authenticationStrategies = array();
+        $sessionStrategyId = 'security.authentication.session_strategy.'.$id;
+
+        if (isset($config['session_concurrency']['max_sessions']) && $config['session_concurrency']['max_sessions'] > 0) {
+            $concurrentSessionControlStrategyId = 'security.authentication.session_strategy.concurrent_control.'.$id;
+            $container
+                    ->setDefinition(
+                            $concurrentSessionControlStrategyId, new DefinitionDecorator(
+                            'security.authentication.session_strategy.concurrent_control'
+                            )
+                    )
+                    ->replaceArgument(1, $config['session_concurrency']['max_sessions'])
+                    ->replaceArgument(2, $config['session_concurrency']['error_if_maximum_exceeded'])
+            ;
+
+            $authenticationStrategies[] = new Reference($concurrentSessionControlStrategyId);
+        }
+
+        $fixationSessionStrategyId = 'security.authentication.session_strategy.fixation.'.$id;
+        $container->setAlias(
+                $fixationSessionStrategyId, 'security.authentication.session_strategy'
+        );
+        $authenticationStrategies[] = new Reference($fixationSessionStrategyId);
+
+        if (
+                (!isset($config['register_new_sessions']) && $config['stateless'] == false) || (isset($config['register_new_sessions']) && $config['register_new_sessions'] == true)
+        ) {
+            $registerSessionStrategyId = 'security.authentication.session_strategy.register.'.$id;
+            $container->setDefinition(
+                    $registerSessionStrategyId, new DefinitionDecorator(
+                    'security.authentication.session_strategy.register'
+                    )
+            );
+            $authenticationStrategies[] = new Reference($registerSessionStrategyId);
+        }
+
+        $container
+                ->setDefinition(
+                        $sessionStrategyId, new DefinitionDecorator(
+                        'security.authentication.session_strategy.composite'
+                        )
+                )
+                ->replaceArgument(0, $authenticationStrategies)
+        ;
+
+        return $sessionStrategyId;
     }
 }
