@@ -320,10 +320,6 @@ abstract class AbstractToken implements TokenInterface
         $currentUserRoles = array_map('strval', (array) $this->user->getRoles());
         $userRoles = array_map('strval', (array) $user->getRoles());
 
-        if ($this instanceof SwitchUserToken) {
-            $userRoles[] = 'ROLE_PREVIOUS_ADMIN';
-        }
-
         if (\count($userRoles) !== \count($currentUserRoles) || \count($userRoles) !== \count(array_intersect($userRoles, $currentUserRoles))) {
             return true;
         }
