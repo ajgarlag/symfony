@@ -34,6 +34,7 @@ class UniqueEntity extends Constraint
     public $fields = [];
     public $errorPath = null;
     public $ignoreNull = true;
+    public $identifierFieldNames = [];
 
     protected static $errorNames = [
         self::NOT_UNIQUE_ERROR => 'NOT_UNIQUE_ERROR',
@@ -54,6 +55,7 @@ class UniqueEntity extends Constraint
         string $errorPath = null,
         bool $ignoreNull = null,
         array $groups = null,
+        array $identifierFieldNames = null,
         $payload = null,
         array $options = []
     ) {
@@ -72,6 +74,7 @@ class UniqueEntity extends Constraint
         $this->repositoryMethod = $repositoryMethod ?? $this->repositoryMethod;
         $this->errorPath = $errorPath ?? $this->errorPath;
         $this->ignoreNull = $ignoreNull ?? $this->ignoreNull;
+        $this->identifierFieldNames = $identifierFieldNames ?? $this->identifierFieldNames;
     }
 
     public function getRequiredOptions()

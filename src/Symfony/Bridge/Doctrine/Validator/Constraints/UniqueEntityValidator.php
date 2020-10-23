@@ -11,7 +11,11 @@
 
 namespace Symfony\Bridge\Doctrine\Validator\Constraints;
 
+use Doctrine\Persistence\ObjectManager;
 use Doctrine\Persistence\ManagerRegistry;
+use Doctrine\Persistence\Mapping\ClassMetadata;
+use Symfony\Component\PropertyAccess\PropertyAccess;
+use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\ConstraintValidator;
 use Symfony\Component\Validator\Exception\ConstraintDefinitionException;
@@ -25,6 +29,7 @@ use Symfony\Component\Validator\Exception\UnexpectedTypeException;
 class UniqueEntityValidator extends ConstraintValidator
 {
     private $registry;
+    private $propertyAccessor;
 
     public function __construct(ManagerRegistry $registry)
     {
@@ -32,12 +37,12 @@ class UniqueEntityValidator extends ConstraintValidator
     }
 
     /**
-     * @param object $entity
+     * @param array|object $data
      *
      * @throws UnexpectedTypeException
      * @throws ConstraintDefinitionException
      */
-    public function validate($entity, Constraint $constraint)
+    public function validate($data, Constraint $constraint)
     {
         if (!$constraint instanceof UniqueEntity) {
             throw new UnexpectedTypeException($constraint, UniqueEntity::class);
@@ -57,9 +62,15 @@ class UniqueEntityValidator extends ConstraintValidator
             throw new ConstraintDefinitionException('At least one field has to be specified.');
         }
 
-        if (null === $entity) {
+        if (null === $data) {
             return;
         }
+
+        if (!\is_object($data) && null === $constraint->entityClass) {
+            throw new ConstraintDefinitionException('To validate non object data, you must define entity class');
+        }
+
+        $entityClass = $constraint->entityClass ?? \get_class($data);
 
         if ($constraint->em) {
             $em = $this->registry->getManager($constraint->em);
@@ -68,14 +79,15 @@ class UniqueEntityValidator extends ConstraintValidator
                 throw new ConstraintDefinitionException(sprintf('Object manager "%s" does not exist.', $constraint->em));
             }
         } else {
-            $em = $this->registry->getManagerForClass(\get_class($entity));
+            $em = $this->registry->getManagerForClass($entityClass);
 
             if (!$em) {
-                throw new ConstraintDefinitionException(sprintf('Unable to find the object manager associated with an entity of class "%s".', get_debug_type($entity)));
+                throw new ConstraintDefinitionException(sprintf('Unable to find the object manager associated with an entity of class "%s".', $entityClass));
             }
         }
 
-        $class = $em->getClassMetadata(\get_class($entity));
+        $class = $em->getClassMetadata($entityClass);
+        $entity = $data instanceof $entityClass ? $data : $this->getEntityToValidate($data, $constraint, $class, $em);
 
         $criteria = [];
         $hasNullValue = false;
@@ -165,7 +177,7 @@ class UniqueEntityValidator extends ConstraintValidator
         }
 
         $errorPath = null !== $constraint->errorPath ? $constraint->errorPath : $fields[0];
-        $invalidValue = isset($criteria[$errorPath]) ? $criteria[$errorPath] : $criteria[$fields[0]];
+        $invalidValue = isset($criteria[$errorPath]) ? $criteria[$errorPath] : $criteria[current($fields)];
 
         $this->context->buildViolation($constraint->message)
             ->atPath($errorPath)
@@ -214,5 +226,86 @@ class UniqueEntityValidator extends ConstraintValidator
         });
 
         return sprintf('object("%s") identified by (%s)', $idClass, implode(', ', $identifiers));
+    }
+
+    private function getEntityToValidate($data, UniqueEntity $constraint, ClassMetadata $class, ObjectManager $em): object
+    {
+        $identity = [];
+        foreach ((array) $constraint->identifierFieldNames as $fieldKey => $fieldName) {
+            $this->assertEntityFieldExists($class, $fieldName);
+            $propertyName = \is_string($fieldKey) ? $fieldKey : $fieldName;
+            $identity[$fieldName] = $this->getDataValue($data, $propertyName, $constraint);
+        }
+
+        if (\count($identity) > 0) {
+            if (array_values($class->getIdentifierFieldNames()) != array_keys($identity)) {
+                throw new ConstraintDefinitionException(sprintf('The "%s" entity identifier field names should be "%s", not "%s".', $class->getName(), implode(', ', $class->getIdentifierFieldNames()), implode(', ', $constraint->identifierFieldNames)));
+            }
+            $entity = $em->find($class->getName(), $identity);
+        }
+
+        if (!isset($entity)) {
+            $entity = $class->newInstance();
+        }
+
+        foreach ((array) $constraint->fields as $fieldKey => $fieldName) {
+            $this->assertEntityFieldExists($class, $fieldName);
+            $propertyName = \is_string($fieldKey) ? $fieldKey : $fieldName;
+            if ($propertyName !== $fieldName && null === $constraint->errorPath) {
+                $constraint->errorPath = $propertyName;
+            }
+            $class->reflFields[$fieldName]->setValue($entity, $this->getDataValue($data, $propertyName, $constraint));
+        }
+
+        return $entity;
+    }
+
+    private function assertEntityFieldExists(ClassMetadata $class, string $fieldName)
+    {
+        if (!$class->hasField($fieldName) && !$class->hasAssociation($fieldName)) {
+            throw new ConstraintDefinitionException(sprintf('The field "%s" is not mapped by Doctrine entity "%s".', $fieldName, $class->getName()));
+        }
+    }
+
+    private function getDataValue($data, string $propertyName, UniqueEntity $constraint)
+    {
+        if (\is_object($data)) {
+            return $this->getPropertyValue($data, $propertyName);
+        }
+
+        $value = $this->getPropertyAccessor()->getValue($data, $propertyName);
+
+        if (null === $value && $constraint->ignoreNull === false) {
+            throw new ConstraintDefinitionException(sprintf('Cannot read path "%s" from "%s".', $propertyName, json_encode($data)));
+        }
+
+        return $value;
+    }
+
+    private function getPropertyValue(object $object, string $propertyName)
+    {
+        try {
+            $property = new \ReflectionProperty($object, $propertyName);
+        } catch (\ReflectionException $e) {
+             throw new ConstraintDefinitionException(sprintf('Cannot read property "%s" from class "%s".', $propertyName, \get_class($object)));
+        }
+        if (!$property->isPublic()) {
+            $property->setAccessible(true);
+        }
+
+        return $property->getValue($object);
+    }
+
+    private function getPropertyAccessor(): PropertyAccessorInterface
+    {
+        if (null === $this->propertyAccessor) {
+            if (!class_exists(PropertyAccess::class)) {
+                throw new \LogicException('The UniqueValueInEntityValidator requires the "PropertyAccess" component to validate non object data. Install "symfony/property-access" to use it.');
+            }
+
+            $this->propertyAccessor = PropertyAccess::createPropertyAccessor();
+        }
+
+        return $this->propertyAccessor;
     }
 }

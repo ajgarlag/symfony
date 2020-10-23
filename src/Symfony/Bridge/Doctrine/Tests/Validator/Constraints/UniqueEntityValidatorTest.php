@@ -22,15 +22,21 @@ use Symfony\Bridge\Doctrine\Test\DoctrineTestHelper;
 use Symfony\Bridge\Doctrine\Test\TestRepositoryFactory;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\AssociationEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\AssociationEntity2;
+use Symfony\Bridge\Doctrine\Tests\Fixtures\CompositeIntIdEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\CompositeObjectNoToStringIdEntity;
+use Symfony\Bridge\Doctrine\Tests\Fixtures\CreateDoubleNameEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\DoubleNameEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\DoubleNullableNameEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\Employee;
+use Symfony\Bridge\Doctrine\Tests\Fixtures\HireAnEmployee;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\Person;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\SingleIntIdEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\SingleIntIdNoToStringEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\SingleIntIdStringWrapperNameEntity;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\Type\StringWrapper;
+use Symfony\Bridge\Doctrine\Tests\Fixtures\UpdateCompositeIntIdEntity;
+use Symfony\Bridge\Doctrine\Tests\Fixtures\UpdateCompositeObjectNoToStringIdEntity;
+use Symfony\Bridge\Doctrine\Tests\Fixtures\UpdateEmployeeProfile;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntityValidator;
 use Symfony\Component\Validator\Test\ConstraintValidatorTestCase;
@@ -837,5 +843,272 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->setCause([$entity1])
             ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
             ->assertRaised();
+    }
+
+    public function testValidateDTOUniqueness()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['name'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\Person',
+        ]);
+
+        $entity = new Person(1, 'Foo');
+        $dto = new HireAnEmployee('Foo');
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->assertNoViolation();
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->buildViolation('myMessage')
+            ->atPath('property.path.name')
+            ->setInvalidValue('Foo')
+            ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
+            ->setCause([$entity])
+            ->setParameters(['{{ value }}' => '"Foo"'])
+            ->assertRaised();
+    }
+
+    public function testValidateArrayUniqueness()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['[name]' => 'name'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\Person',
+        ]);
+
+        $entity = new Person(1, 'Foo');
+        $dto = ['name' => 'Foo'];
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->assertNoViolation();
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->buildViolation('myMessage')
+            ->atPath('property.path[name]')
+            ->setInvalidValue('Foo')
+            ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
+            ->setCause([$entity])
+            ->setParameters(['{{ value }}' => '"Foo"'])
+            ->assertRaised();
+    }
+
+    public function testValidateMappingOfFieldNames()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['primaryName' => 'name', 'secondaryName' => 'name2'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\DoubleNameEntity',
+        ]);
+
+        $entity = new DoubleNameEntity(1, 'Foo', 'Bar');
+        $dto = new CreateDoubleNameEntity('Foo', 'Bar');
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->buildViolation('myMessage')
+            ->atPath('property.path.primaryName')
+            ->setParameter('{{ value }}', '"Foo"')
+            ->setInvalidValue('Foo')
+            ->setCause([$entity])
+            ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
+            ->assertRaised();
+    }
+
+    public function testValidateMappingOfFieldNamesToArray()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['[primaryName]' => 'name', '[secondaryName]' => 'name2'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\DoubleNameEntity',
+        ]);
+
+        $entity = new DoubleNameEntity(1, 'Foo', 'Bar');
+        $dto = ['primaryName' => 'Foo', 'secondaryName' => 'Bar'];
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->buildViolation('myMessage')
+            ->atPath('property.path[primaryName]')
+            ->setParameter('{{ value }}', '"Foo"')
+            ->setInvalidValue('Foo')
+            ->setCause([$entity])
+            ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
+            ->assertRaised();
+    }
+
+    public function testInvalidateDTOFieldName()
+    {
+        $this->expectException('Symfony\Component\Validator\Exception\ConstraintDefinitionException');
+        $this->expectExceptionMessage('Cannot read property "primaryName" from class "Symfony\Bridge\Doctrine\Tests\Fixtures\HireAnEmployee".');
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['primaryName' => 'name'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\SingleStringIdEntity',
+        ]);
+
+        $dto = new HireAnEmployee('Foo');
+        $this->validator->validate($dto, $constraint);
+    }
+
+    public function testInvalidateArrayFieldName()
+    {
+        $this->expectException('Symfony\Component\Validator\Exception\ConstraintDefinitionException');
+        $this->expectExceptionMessage('Cannot read path "[primaryName]" from "{"name":"Foo"}".');
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['[primaryName]' => 'name'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\SingleStringIdEntity',
+            'ignoreNull' => false,
+        ]);
+
+        $dto = ['name' => 'Foo'];
+        $this->validator->validate($dto, $constraint);
+    }
+
+    public function testInvalidateEntityFieldName()
+    {
+        $this->expectException('Symfony\Component\Validator\Exception\ConstraintDefinitionException');
+        $this->expectExceptionMessage('The field "name2" is not mapped by Doctrine entity "Symfony\Bridge\Doctrine\Tests\Fixtures\SingleStringIdEntity".');
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['name2'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\SingleStringIdEntity',
+        ]);
+
+        $dto = new HireAnEmployee('Foo');
+        $this->validator->validate($dto, $constraint);
+    }
+
+    public function testValidateDTOUniquenessWhenUpdatingEntity()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['name'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\Person',
+            'identifierFieldNames' => ['id'],
+        ]);
+
+        $entity1 = new Person(1, 'Foo');
+        $entity2 = new Person(2, 'Bar');
+
+        $this->em->persist($entity1);
+        $this->em->persist($entity2);
+        $this->em->flush();
+
+        $dto = new UpdateEmployeeProfile(2, 'Foo');
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->buildViolation('myMessage')
+            ->atPath('property.path.name')
+            ->setInvalidValue('Foo')
+            ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
+            ->setCause([$entity1])
+            ->setParameters(['{{ value }}' => '"Foo"'])
+            ->assertRaised();
+    }
+
+    public function testValidateDTOUniquenessWhenUpdatingEntityWithTheSameValue()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['name'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\CompositeIntIdEntity',
+            'identifierFieldNames' => ['id1', 'id2'],
+        ]);
+
+        $entity = new CompositeIntIdEntity(1, 2, 'Foo');
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $dto = new UpdateCompositeIntIdEntity(1, 2, 'Foo');
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->assertNoViolation();
+    }
+
+    public function testValidateIdentifierMappingOfFieldNames()
+    {
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['object1' => 'objectOne', 'object2' => 'objectTwo'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\CompositeObjectNoToStringIdEntity',
+            'identifierFieldNames' => ['object1' => 'objectOne', 'object2' => 'objectTwo'],
+        ]);
+
+        $objectOne = new SingleIntIdNoToStringEntity(1, 'foo');
+        $objectTwo = new SingleIntIdNoToStringEntity(2, 'bar');
+
+        $this->em->persist($objectOne);
+        $this->em->persist($objectTwo);
+        $this->em->flush();
+
+        $entity = new CompositeObjectNoToStringIdEntity($objectOne, $objectTwo);
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $dto = new UpdateCompositeObjectNoToStringIdEntity($objectOne, $objectTwo, 'Foo');
+
+        $this->validator->validate($dto, $constraint);
+
+        $this->assertNoViolation();
+    }
+
+    public function testInvalidateMissingIdentifierFieldName()
+    {
+        $this->expectException('Symfony\Component\Validator\Exception\ConstraintDefinitionException');
+        $this->expectExceptionMessage('The "Symfony\Bridge\Doctrine\Tests\Fixtures\CompositeObjectNoToStringIdEntity" entity identifier field names should be "objectOne, objectTwo", not "objectTwo".');
+        $constraint = new UniqueEntity([
+            'message' => 'myMessage',
+            'fields' => ['object1' => 'objectOne', 'object2' => 'objectTwo'],
+            'em' => self::EM_NAME,
+            'entityClass' => 'Symfony\Bridge\Doctrine\Tests\Fixtures\CompositeObjectNoToStringIdEntity',
+            'identifierFieldNames' => ['object2' => 'objectTwo'],
+        ]);
+
+        $objectOne = new SingleIntIdNoToStringEntity(1, 'foo');
+        $objectTwo = new SingleIntIdNoToStringEntity(2, 'bar');
+
+        $this->em->persist($objectOne);
+        $this->em->persist($objectTwo);
+        $this->em->flush();
+
+        $entity = new CompositeObjectNoToStringIdEntity($objectOne, $objectTwo);
+
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $dto = new UpdateCompositeObjectNoToStringIdEntity($objectOne, $objectTwo, 'Foo');
+        $this->validator->validate($dto, $constraint);
     }
 }
