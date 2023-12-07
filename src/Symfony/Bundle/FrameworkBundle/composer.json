@@ -49,6 +49,7 @@
         "symfony/expression-language": "^7.4|^8.0",
         "symfony/form": "^7.4|^8.0",
         "symfony/html-sanitizer": "^7.4|^8.0",
+        "symfony/feature-flag": "^8.0",
         "symfony/http-client": "^7.4|^8.0",
         "symfony/json-streamer": "^7.4|^8.0",
         "symfony/lock": "^7.4|^8.0",
