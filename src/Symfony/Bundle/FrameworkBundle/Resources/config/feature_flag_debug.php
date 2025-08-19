@@ -14,7 +14,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Symfony\Component\FeatureFlag\DataCollector\FeatureFlagDataCollector;
 use Symfony\Component\FeatureFlag\Debug\TraceableFeatureChecker;
 
-return static function (ContainerConfigurator $container) {
+return static function (ContainerConfigurator $container): void {
     $container->services()
 
         ->set('debug.feature_flag.feature_checker', TraceableFeatureChecker::class)
