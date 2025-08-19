@@ -17,7 +17,7 @@ use Symfony\Component\FeatureFlag\Provider\ChainProvider;
 use Symfony\Component\FeatureFlag\Provider\InMemoryProvider;
 use Symfony\Component\FeatureFlag\Provider\ProviderInterface;
 
-return static function (ContainerConfigurator $container) {
+return static function (ContainerConfigurator $container): void {
     $container->services()
 
         ->set('feature_flag.provider.in_memory', InMemoryProvider::class)

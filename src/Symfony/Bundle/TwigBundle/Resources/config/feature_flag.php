@@ -14,7 +14,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Symfony\Bridge\Twig\Extension\FeatureFlagExtension;
 use Symfony\Bridge\Twig\Extension\FeatureFlagRuntime;
 
-return static function (ContainerConfigurator $container) {
+return static function (ContainerConfigurator $container): void {
     $container->services()
 
         ->set('twig.runtime.feature_flag', FeatureFlagRuntime::class)
